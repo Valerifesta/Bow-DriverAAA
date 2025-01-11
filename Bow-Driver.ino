@@ -8,31 +8,73 @@ int encoderPosCount1 = 0;
 int pinA1Last;
 int interval = 100;
 
-float xoffset; 
-float yoffset;
-float zoffset;
+class datapoint{
+  public:
+    float min;
+  public:
+    float max;
+  public:
+    float offset;
+  float standarddiff;
+  public:   
+    float pos;
+  public: 
+    void reset(){
+      min = 9999999;
+      max = -9999999;
+      offset = 0;
+      standarddiff = 0;
+      pos = 0;
+    }
+  public: 
+    void setstandarddiff(){
+      standarddiff = abs(abs(max)-abs(min));
+    }
+  public: void calcpos(float vel, float delta){
+    if(abs(vel) > standarddiff){
+      pos += vel *  delta;
+    }
+  }
+};
 
-float gxoffset;
-float gyoffset;
-float gzoffset;
+class coord: public datapoint{
+  public:
+    float vel;
+  int resetcount;
+  public: void reset(){
+    datapoint::reset();
+    vel = 0;
+    resetcount = 0;
+  }
+  public: void calcpos(float acc, float delta){
+    if(abs(acc) > standarddiff){
+      pos += vel *  delta + (acc*delta*delta/2);
+      vel += acc * delta; 
+    }
+    else{
+      resetcount++;
+      if(resetcount == 100){
+        vel = 0;
+        resetcount = 0;
+      }
+    }
+  }
+};
 
-float xstandarddiff;
-float ystandarddiff;
-float zstandarddiff;
 
-float gxstandarddiff;
-float gystandarddiff;
-float gzstandarddiff;
+coord x;
+coord y;
+coord z;
 
-float xvel;
-float yvel;
-float zvel;
-
-float xpos;
-float ypos;
-float zpos;
+datapoint gx;
+datapoint gy; 
+datapoint gz;
 
 float mintotacc;
+
+
+int minxtime;
+int maxxtime;
 
 float rps;
 boolean bCW;
@@ -44,60 +86,108 @@ void calibrate(Adafruit_MPU6050 m, unsigned long duration){
   unsigned long startttime = millis();
   Serial.println("Calibrating...");
 
-  float xmin = 9999999;
-  float xmax = -999999;
-  float ymin = 9999999;
-  xpos = 0;
-  ypos = 0;
-  zpos = 0;
-  xvel = 0;
-  yvel = 0;
-  zvel = 0;
-  float xoffsettotal = 0; 
+  int startup_wait = 100;
+
+
+  float xoffsettotal = 0;
   float yoffsettotal = 0;
   float zoffsettotal = 0;
-
   float gxoffsettotal = 0;
   float gyoffsettotal = 0;
   float gzoffsettotal = 0;
+  x.reset();
+  y.reset();
+  z.reset();
+  gx.reset();
+  gy.reset();
+  gz.reset();
 
   while(millis() - startttime < duration) {
     sensors_event_t a, g, temp;
     m.getEvent(&a, &g, &temp);
-    xoffsettotal += a.acceleration.x; 
-    yoffsettotal += a.acceleration.y;
-    zoffsettotal += a.acceleration.z;
+    
+  
+    //God forgive me
+    if(totaldata > startup_wait){
+      xoffsettotal += a.acceleration.x; 
+      yoffsettotal += a.acceleration.y;
+      zoffsettotal += a.acceleration.z;
+      if(a.acceleration.x > x.max) {maxxtime = totaldata; x.max = a.acceleration.x;}
+      if(a.acceleration.x < x.min) {minxtime = totaldata; x.min = a.acceleration.x;}
+      if(a.acceleration.y > y.max) {y.max = a.acceleration.y;}
+      if(a.acceleration.y < y.min) {y.min = a.acceleration.y;}
+      if(a.acceleration.z > z.max) {z.max = a.acceleration.z;}
+      if(a.acceleration.z < z.min) {z.min = a.acceleration.z;}
+      if(g.gyro.x > gx.max) {gx.max = g.gyro.x;}
+      if(g.gyro.x < gx.min) {gx.min = g.gyro.x;}
+      if(g.gyro.y > gy.max) {gy.max = g.gyro.y;}
+      if(g.gyro.y < gy.min) {gy.min = g.gyro.y;}
+      if(g.gyro.z > gz.max) {gz.max = g.gyro.z;}
+      if(g.gyro.z < gz.min) {gz.min = g.gyro.z;}
+      gxoffsettotal += g.gyro.x;
+      gyoffsettotal += g.gyro.y;
+      gzoffsettotal += g.gyro.z;
 
-    gxoffsettotal += g.gyro.x;
-    gyoffsettotal += g.gyro.y;
-    gzoffsettotal += g.gyro.z;
+    }
 
     totaldata++;
   }
-  xoffset = xoffsettotal/totaldata; 
-  yoffset = yoffsettotal/totaldata;
-  zoffset = zoffsettotal/totaldata;
 
-  gxoffset = gxoffsettotal/totaldata;
-  gyoffset = gyoffsettotal/totaldata;
-  gzoffset = gzoffsettotal/totaldata;
+  totaldata -= startup_wait;
+  x.offset = xoffsettotal/totaldata; 
+  y.offset = yoffsettotal/totaldata;
+  z.offset = zoffsettotal/totaldata;
+
+  gx.offset = gxoffsettotal/totaldata;
+  gy.offset = gyoffsettotal/totaldata;
+  gz.offset = gzoffsettotal/totaldata;
+
+  x.setstandarddiff();
+  y.setstandarddiff();
+  z.setstandarddiff();
+  gx.setstandarddiff();
+  gy.setstandarddiff();
+  gz.setstandarddiff();
 
   Serial.print("Collected a total of: ");
   Serial.print(totaldata);
   Serial.println(" datapoints");
 
-  Serial.print("Setting offset datapoints to X: ");
-  Serial.print(xoffset);
+  Serial.print("The smallest value for X was found at datapoint: ");
+  Serial.print(minxtime);
+  Serial.print(" with a value of: ");
+  Serial.println(x.min);
+  Serial.print("The greatest value for X was found at datapoint: ");
+  Serial.print(maxxtime);
+  Serial.print(" with a value of: ");
+  Serial.println(x.max);
+
+  Serial.print("Setting offset to X: ");
+  Serial.print(x.offset);
   Serial.print(", Y: ");
-  Serial.print(yoffset);
+  Serial.print(y.offset);
   Serial.print(", Z: ");
-  Serial.print(zoffset);
+  Serial.print(z.offset);
   Serial.println(" m/s^2");
-  Serial.print(gxoffset);
+  Serial.print(gx.offset);
   Serial.print(", Y: ");
-  Serial.print(gyoffset);
+  Serial.print(gy.offset);
   Serial.print(", Z: ");
-  Serial.print(gzoffset);
+  Serial.print(gz.offset);
+  Serial.println("rad/s");
+
+  Serial.print("Setting standard deviation to X: ");
+  Serial.print(x.standarddiff);
+  Serial.print(", Y: ");
+  Serial.print(y.standarddiff);
+  Serial.print(", Z: ");
+  Serial.print(z.standarddiff);
+  Serial.println(" m/s^2");
+  Serial.print(gx.standarddiff);
+  Serial.print(", Y: ");
+  Serial.print(gy.standarddiff);
+  Serial.print(", Z: ");
+  Serial.print(gz.standarddiff);
   Serial.println("rad/s");
 
 }
@@ -177,7 +267,7 @@ void setup() {
     break;
   }
   Serial.println("");
-  delay(100);
+  delay(1000);
   calibrate(mpu, 20000);
   lastUpdMillis = millis();
 }
@@ -197,6 +287,7 @@ int poscount(int aVal, int pinB, int pinALast){
   return 0;
 }
 
+
 void loop() {
   unsigned long currentMillis = millis();
   int aVal1 = digitalRead(pinA1);
@@ -205,45 +296,45 @@ void loop() {
   sensors_event_t a, g, temp;
   mpu.getEvent(&a, &g, &temp);
   Serial.print("Acceleration X: ");
-  Serial.print(a.acceleration.x - xoffset);
+  Serial.print(a.acceleration.x - x.offset);
   Serial.print(", Y: ");
-  Serial.print(a.acceleration.y - yoffset);
+  Serial.print(a.acceleration.y - y.offset);
   Serial.print(", Z: ");
-  Serial.print(a.acceleration.z - zoffset);
+  Serial.print(a.acceleration.z - z.offset);
   Serial.println(" m/s^2");
 
   float delta = ((float)(currentMillis - lastUpdMillis))/1000.0;
 
-  float xacc = a.acceleration.x - xoffset;
-  float yacc = a.acceleration.y - yoffset;
-  float zacc = a.acceleration.z - zoffset;
+  float xacc = a.acceleration.x - x.offset;
+  float yacc = a.acceleration.y - y.offset;
+  float zacc = a.acceleration.z - z.offset;
 
-  xpos += xvel *  delta + (xacc*delta*delta/2);
-  ypos += yvel *  delta + (yacc*delta*delta/2);
-  zpos += zvel *  delta + (zacc*delta*delta/2);
+  x.calcpos(xacc, delta);
+  y.calcpos(yacc, delta);
+  z.calcpos(zacc, delta);
 
-  xvel += xacc * delta; 
-  yvel += yacc * delta;
-  zvel += zacc * delta;
+  gx.calcpos(xacc, delta);
+  gy.calcpos(yacc, delta);
+  gz.calcpos(zacc, delta);
 
   
   Serial.print("delta: ");
   Serial.println(delta);
   
   Serial.print("Velocity X: ");
-  Serial.print(xvel);
+  Serial.print(x.vel);
   Serial.print(", Y: ");
-  Serial.print(yvel);
+  Serial.print(y.vel);
   Serial.print(", Z: ");
-  Serial.print(zvel);
+  Serial.print(z.vel);
   Serial.println(" m/s");
 
   Serial.print("Position X: ");
-  Serial.print(xpos);
+  Serial.print(x.pos);
   Serial.print(", Y: ");
-  Serial.print(ypos);
+  Serial.print(y.pos);
   Serial.print(", Z: ");
-  Serial.print(zpos);
+  Serial.print(z.pos);
   Serial.println(" m");
 
   lastUpdMillis = currentMillis;
