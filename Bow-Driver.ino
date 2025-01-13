@@ -1,12 +1,12 @@
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 
+#define TEST_OUTPUT 1
 Adafruit_MPU6050 mpu;
 int pinA1 = 26; // Connected to CLK
 int pinB1 = 25; // Connected to DT
 int encoderPosCount1 = 0;
-int pinA1Last;
-int interval = 100;
+int pinA1Last; int interval = 100;
 
 class datapoint{
   public:
@@ -149,6 +149,7 @@ void calibrate(Adafruit_MPU6050 m, unsigned long duration){
   gy.setstandarddiff();
   gz.setstandarddiff();
 
+  #ifdef TEST_OUTPUT
   Serial.print("Collected a total of: ");
   Serial.print(totaldata);
   Serial.println(" datapoints");
@@ -174,7 +175,7 @@ void calibrate(Adafruit_MPU6050 m, unsigned long duration){
   Serial.print(gy.offset);
   Serial.print(", Z: ");
   Serial.print(gz.offset);
-  Serial.println("rad/s");
+  Serial.println("deg/s");
 
   Serial.print("Setting standard deviation to X: ");
   Serial.print(x.standarddiff);
@@ -188,7 +189,8 @@ void calibrate(Adafruit_MPU6050 m, unsigned long duration){
   Serial.print(gy.standarddiff);
   Serial.print(", Z: ");
   Serial.print(gz.standarddiff);
-  Serial.println("rad/s");
+  Serial.println("deg/s");
+  #endif
 
 }
 
@@ -295,6 +297,7 @@ void loop() {
   pinA1Last = aVal1;
   sensors_event_t a, g, temp;
   mpu.getEvent(&a, &g, &temp);
+  #ifdef TEST_OUTPUT
   Serial.print("Acceleration X: ");
   Serial.print(a.acceleration.x - x.offset);
   Serial.print(", Y: ");
@@ -302,6 +305,7 @@ void loop() {
   Serial.print(", Z: ");
   Serial.print(a.acceleration.z - z.offset);
   Serial.println(" m/s^2");
+  #endif
 
   float delta = ((float)(currentMillis - lastUpdMillis))/1000.0;
 
@@ -313,11 +317,15 @@ void loop() {
   y.calcpos(yacc, delta);
   z.calcpos(zacc, delta);
 
+  float gxvel = g.gyro.x - gx.offset;
+  float gyvel = g.gyro.y - gy.offset;
+  float gzvel = g.gyro.z - gz.offset;
   gx.calcpos(xacc, delta);
   gy.calcpos(yacc, delta);
   gz.calcpos(zacc, delta);
 
   
+  #ifdef TEST_OUTPUT
   Serial.print("delta: ");
   Serial.println(delta);
   
@@ -337,16 +345,27 @@ void loop() {
   Serial.print(z.pos);
   Serial.println(" m");
 
-  lastUpdMillis = currentMillis;
+  Serial.println("Angle X: ");
+  Serial.print(gx.pos);
+  Serial.print(", Y: ");
+  Serial.print(gy.pos);
+  Serial.print(", Z: ");
+  Serial.print(gz.pos);
+  Serial.println(" deg");
+  #endif
 
+  lastUpdMillis = currentMillis;
   if(currentMillis - previousMillis >= interval){
 
     rps = abs(3.14*2.0 * (((float)encoderPosCount1)/16.0) * 1000/interval);
     if(rps > 0) {
+      #ifdef TEST_OUTPUT
       Serial.print("Encoder position:");
       Serial.println(encoderPosCount1);
       Serial.print("Rotation speed (radians per second): ");
       Serial.println(rps);
+      #endif
+
 
     }
     
