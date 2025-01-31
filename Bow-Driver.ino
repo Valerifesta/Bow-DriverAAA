@@ -1,12 +1,33 @@
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 
-#define TEST_OUTPUT 1
+//#define TEST_OUTPUT 1
 Adafruit_MPU6050 mpu;
 int pinA1 = 26; // Connected to CLK
 int pinB1 = 25; // Connected to DT
+
+int pinA2 = 14;
+int pinB2 = 27;
 int encoderPosCount1 = 0;
-int pinA1Last; int interval = 100;
+int encoderPosCount2 = 0;
+int pinA1Last; 
+int interval = 32;
+int pinA2Last;
+
+int button1 = 16;
+int button2 = 17;
+int lastbutton1 = 0;
+int lastbutton2 = 0;
+
+
+int heldframes1 = 0;
+int heldframes2 = 0;
+bool button1pressed = false;
+bool button2pressed = false;
+
+bool button1unpressed = true;
+bool button2unpressed = true;
+bool rps_change = false; 
 
 class datapoint{
   public:
@@ -70,7 +91,6 @@ datapoint gx;
 datapoint gy; 
 datapoint gz;
 
-float mintotacc;
 
 
 int minxtime;
@@ -81,13 +101,16 @@ boolean bCW;
 unsigned long previousMillis = 0;
 unsigned long lastUpdMillis = 0;
 
+unsigned long lastAccMillis = 0;
+
 void calibrate(Adafruit_MPU6050 m, unsigned long duration){
   int totaldata = 0;
   unsigned long startttime = millis();
+  #ifdef TEST_OUTPUT
   Serial.println("Calibrating...");
+  #endif
 
   int startup_wait = 100;
-
 
   float xoffsettotal = 0;
   float yoffsettotal = 0;
@@ -191,26 +214,37 @@ void calibrate(Adafruit_MPU6050 m, unsigned long duration){
   Serial.print(gz.standarddiff);
   Serial.println("deg/s");
   #endif
+  while (Serial.available() > 0){char received = Serial.read();}
 
 }
 
 void setup() {
   pinMode (pinA1,INPUT);
   pinMode (pinB1,INPUT);
+  pinMode (pinB2,INPUT);
+  pinMode (pinA2,INPUT);
+  pinMode (button1,INPUT);
+  pinMode (button2,INPUT);
   /* Read Pin A
   Whatever state it's in will reflect the last position
   */
   pinA1Last = digitalRead(pinA1);
+  pinA2Last = digitalRead(pinA2);
   Serial.begin (115200);
   previousMillis = millis();
   if (!mpu.begin()) {
+    #ifdef TEST_OUTPUT
     Serial.println("Sensor init failed");
+    #endif
     while (1)
       yield();
   }
+  #ifdef TEST_OUTPUT
   Serial.println("MPU6050 Found!");
+  #endif
 
   mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
+  #ifdef TEST_OUTPUT
   Serial.print("Accelerometer range set to: ");
   switch (mpu.getAccelerometerRange()) {
   case MPU6050_RANGE_2_G:
@@ -226,7 +260,10 @@ void setup() {
     Serial.println("+-16G");
     break;
   }
+  #endif
+
   mpu.setGyroRange(MPU6050_RANGE_500_DEG);
+  #ifdef TEST_OUTPUT
   Serial.print("Gyro range set to: ");
   switch (mpu.getGyroRange()) {
   case MPU6050_RANGE_250_DEG:
@@ -242,8 +279,10 @@ void setup() {
     Serial.println("+- 2000 deg/s");
     break;
   }
+  #endif
 
   mpu.setFilterBandwidth(MPU6050_BAND_5_HZ);
+  #ifdef TEST_OUTPUT
   Serial.print("Filter bandwidth set to: ");
   switch (mpu.getFilterBandwidth()) {
   case MPU6050_BAND_260_HZ:
@@ -269,8 +308,9 @@ void setup() {
     break;
   }
   Serial.println("");
+  #endif
   delay(1000);
-  calibrate(mpu, 20000);
+  calibrate(mpu, 2000);
   lastUpdMillis = millis();
 }
 
@@ -279,6 +319,7 @@ int poscount(int aVal, int pinB, int pinALast){
   bool eqlast = pinALast == aVal;
   pinALast = aVal;
   if (!eqlast){  
+    //Serial.println("rotating!");
     if (digitalRead(pinB) != aVal) { // Means pqin A Changed first - We're Rotating
       return 1;
     } 
@@ -293,18 +334,51 @@ int poscount(int aVal, int pinB, int pinALast){
 void loop() {
   unsigned long currentMillis = millis();
   int aVal1 = digitalRead(pinA1);
+  int aVal2 = digitalRead(pinA2);
+
+  int currentbutton1 = digitalRead(button1);
+  int currentbutton2 = digitalRead(button2);
+  if(currentbutton1 == HIGH){
+    heldframes1 += 1;
+    if(heldframes1 >= 100 && button1unpressed){
+      #ifdef TEST_OUTPUT
+      Serial.println("Button 1 pressed");
+      #endif
+      button1pressed = true;
+      button1unpressed = false;
+      heldframes1 = 0;
+    }
+  }
+  else {
+    heldframes1 = 0;
+    button1unpressed = true;
+  }
+  if(currentbutton2 == HIGH){
+    heldframes2 += 1;
+    if(heldframes2 >= 100 && button1unpressed){
+      #ifdef TEST_OUTPUT
+      Serial.println("Button 2 pressed");
+      #endif
+      button2unpressed = false;
+      button2pressed = true;
+      heldframes2 = 0;
+      calibrate(mpu, 2000);
+    }
+  }
+  else{
+    button2unpressed = true;
+    heldframes2 = 0;
+  }
+
+  lastbutton1 = currentbutton1;
+  lastbutton2 = currentbutton2;
   encoderPosCount1 += poscount(aVal1, pinB1, pinA1Last);
+  encoderPosCount2 += poscount(aVal2, pinB2, pinA2Last);
   pinA1Last = aVal1;
+  pinA2Last = aVal2;
   sensors_event_t a, g, temp;
   mpu.getEvent(&a, &g, &temp);
   #ifdef TEST_OUTPUT
-  Serial.print("Acceleration X: ");
-  Serial.print(a.acceleration.x - x.offset);
-  Serial.print(", Y: ");
-  Serial.print(a.acceleration.y - y.offset);
-  Serial.print(", Z: ");
-  Serial.print(a.acceleration.z - z.offset);
-  Serial.println(" m/s^2");
   #endif
 
   float delta = ((float)(currentMillis - lastUpdMillis))/1000.0;
@@ -324,51 +398,126 @@ void loop() {
   gy.calcpos(yacc, delta);
   gz.calcpos(zacc, delta);
 
-  
+  #ifndef TEST_OUTPUT
+  //if(Serial.availableForWrite() >= 13){
+  //  byte buff[1] = {1};
+  //  Serial.write(buff, 1);
+  //  byte gxbuff[16] = {0};
+  //  memcpy(gxbuff, (byte*)&gxvel, sizeof(float));
+  //  Serial.write(gxbuff, sizeof(float));
+  //  byte gybuff[16] = {0};
+  //  memcpy(gybuff, (byte*)&gyvel, sizeof(float));
+  //  Serial.write(gybuff, sizeof(float));
+  //  byte gzbuff[16] = {0};
+  //  memcpy(gzbuff, (byte*)&gzvel, sizeof(float));
+  //  Serial.write(gzbuff, sizeof(float));
+  //}
+
+  #endif
+
+  #ifndef TEST_OUTPUT
+  if(Serial.available() > 0){
+    byte incomingByte = Serial.read();
+
+    if(incomingByte == 1){
+      byte buff[16] = {1};
+      memcpy(buff+1, (byte*)&gxvel, sizeof(float));
+      memcpy(buff+1+sizeof(float), (byte*)&gyvel, sizeof(float));
+      memcpy(buff+1+2*sizeof(float), (byte*)&gzvel, sizeof(float));
+      Serial.write(buff, 13);
+    }
+    if(incomingByte == 2){
+      byte rpsbuff[32] = {0};
+      memcpy(rpsbuff+1, (byte*)&rps,sizeof(float));
+      rpsbuff[0] = (byte)2;
+      Serial.write(rpsbuff, sizeof(float)+1);
+      rps = 0;
+    }
+    //if(incomingByte == 3){
+    //  byte button1buff[1] = {0};
+    //  if(button1pressed){
+    //    button1buff[0] = 3;
+    //  }
+    //  button1pressed = false;
+    //  Serial.write(button1buff, 1);
+    //}
+    //if(incomingByte == 4){
+    //  byte button2buff[1] = {0};
+    //  if(button2pressed){
+    //    button2buff[0] = 4;
+    //  }
+    //  button2pressed = false;
+    //  Serial.write(button2buff, 1);
+    //}
+    //if(incomingByte == 5){
+    //  byte button2buff[1] = {5};
+    //  Serial.write(button2buff, 1);
+    //  //calibrate(mpu, 5000);
+    //}
+  }
+  #endif
   #ifdef TEST_OUTPUT
-  Serial.print("delta: ");
-  Serial.println(delta);
-  
-  Serial.print("Velocity X: ");
-  Serial.print(x.vel);
-  Serial.print(", Y: ");
-  Serial.print(y.vel);
-  Serial.print(", Z: ");
-  Serial.print(z.vel);
-  Serial.println(" m/s");
+  //Serial.print("Acceleration X: ");
+  //Serial.print(a.acceleration.x - x.offset);
+  //Serial.print(", Y: ");
+  //Serial.print(a.acceleration.y - y.offset);
+  //Serial.print(", Z: ");
+  //Serial.print(a.acceleration.z - z.offset);
+  //Serial.println(" m/s^2");
+  //Serial.print("delta: ");
+  //Serial.println(delta);
+  //
+  //Serial.print("Velocity X: ");
+  //Serial.print(x.vel);
+  //Serial.print(", Y: ");
+  //Serial.print(y.vel);
+  //Serial.print(", Z: ");
+  //Serial.print(z.vel);
+  //Serial.println(" m/s");
 
-  Serial.print("Position X: ");
-  Serial.print(x.pos);
-  Serial.print(", Y: ");
-  Serial.print(y.pos);
-  Serial.print(", Z: ");
-  Serial.print(z.pos);
-  Serial.println(" m");
+  //Serial.print("Position X: ");
+  //Serial.print(x.pos);
+  //Serial.print(", Y: ");
+  //Serial.print(y.pos);
+  //Serial.print(", Z: ");
+  //Serial.print(z.pos);
+  //Serial.println(" m");
 
-  Serial.println("Angle X: ");
-  Serial.print(gx.pos);
-  Serial.print(", Y: ");
-  Serial.print(gy.pos);
-  Serial.print(", Z: ");
-  Serial.print(gz.pos);
-  Serial.println(" deg");
+  //Serial.println("Angle X: ");
+  //Serial.print(gx.pos);
+  //Serial.print(", Y: ");
+  //Serial.print(gy.pos);
+  //Serial.print(", Z: ");
+  //Serial.print(gz.pos);
+  //Serial.println(" deg");
   #endif
 
   lastUpdMillis = currentMillis;
   if(currentMillis - previousMillis >= interval){
 
-    rps = abs(3.14*2.0 * (((float)encoderPosCount1)/16.0) * 1000/interval);
+    rps = 3.14*2.0 * (((float)(encoderPosCount2)+(float)(encoderPosCount1))/32.0) * 1000/interval;
+    rps_change = false;
     if(rps > 0) {
       #ifdef TEST_OUTPUT
-      Serial.print("Encoder position:");
-      Serial.println(encoderPosCount1);
-      Serial.print("Rotation speed (radians per second): ");
-      Serial.println(rps);
+      //Serial.print("Encoder position:");
+      //Serial.println(encoderPosCount2);
+      //Serial.print("Rotation speed (radians per second): ");
+      //Serial.println(rps);
+      #endif
+
+      #ifndef TEST_OUTPUT
+      //if(Serial.availableForWrite() >= 5){
+      //  byte rpsbuff[32] = {0};
+      //  rpsbuff[0] = (byte)2;
+      //  memcpy(rpsbuff+1, (byte*)&rps,sizeof(float));
+      //  Serial.write(rpsbuff, sizeof(float)+1);
+      //}
       #endif
 
 
     }
     
+    encoderPosCount2 = 0;
     encoderPosCount1 = 0;
     previousMillis = currentMillis;
   }
