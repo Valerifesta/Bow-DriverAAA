@@ -433,6 +433,12 @@ void loop() {
       Serial.write(rpsbuff, sizeof(float)+1);
       rps = 0;
     }
+
+  if(incomingByte == 3){
+    byte buttonbuff[16] = {3,149,1,151,117,160,9,213,175,241,100,81,213,41,114,194};
+    Serial.write(buttonbuff, 16);
+    button1pressed = false;
+  }
     //if(incomingByte == 3){
     //  byte button1buff[1] = {0};
     //  if(button1pressed){
